@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment files — never commit real keys
+.env
+.env.local
+.env.*.local
+
+# But DO commit the template
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Scimago dataset (large file, freely downloadable)
+data/scimago_journal_rank.csv
+
+# Sample Excels with institutional data
+samples/*.xlsx
+
+# IDE
+.vscode/
+.idea/
