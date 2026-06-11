@@ -9,10 +9,9 @@ import { join } from 'path';
 import { parse } from 'csv-parse/sync';
 
 /**
- * What the resolver returns when an ISSN matches a journal in the
- * Scimago dataset. `mainQuartile` follows the "main category" rule
- * agreed with the product team: the first category listed for the
- * journal is its primary category, and we keep that quartile.
+ * Resolved entry returned to callers (fetchers).
+ * `mainQuartile` follows the "main category" rule per product decision —
+ * the first category listed for the journal is treated as primary.
  */
 export interface SjrEntry {
   journalTitle: string;
@@ -24,47 +23,38 @@ export interface SjrEntry {
 }
 
 /**
- * Loads the Scimago Journal Rank CSV (downloaded yearly from
- * https://www.scimagojr.com/journalrank.php) into memory at boot
- * and exposes an O(1) lookup by ISSN.
+ * Loads the Scimago Journal Rank CSV into memory at boot and exposes an
+ * O(1) lookup by ISSN.
  *
- * Why local CSV instead of an API:
- *  - Scimago does NOT offer a public REST API for journal data.
- *  - The dataset is updated once a year, so caching is trivial.
- *  - Avoids adding an external dependency in the fetch pipeline.
- *
- * Why a single shared service:
- *  - Both `wos-fetcher` and `scopus-fetcher` resolve the SAME thing
- *    (quartile from ISSN), so duplicating the logic would be wasteful.
+ * Scimago publishes the CSV with European conventions (semicolon as
+ * column separator, comma as decimal separator, fields wrapped in
+ * double quotes). Some editions ship with a handful of rows that have
+ * malformed quotes — `csv-parse` aborts the whole file on the first
+ * such row by default. We configure it to **skip and log** offending
+ * rows instead, so the resolver still loads ~32k valid entries even
+ * if 1-2 are corrupt.
  */
 @Injectable()
 export class SjrResolverService implements OnModuleInit {
   private readonly logger = new Logger(SjrResolverService.name);
 
-  /**
-   * In-memory index. Keys are normalized ISSNs (no dashes, uppercase),
-   * values are the resolved metadata. A journal can have multiple ISSNs
-   * (print + online) — both are inserted pointing to the same entry.
-   */
+  /** ISSN → SjrEntry. ISSNs are normalised (no dashes, uppercase). */
   private readonly issnIndex = new Map<string, SjrEntry>();
-
-  /** Whether the CSV was found and loaded successfully on startup. */
   private isReady = false;
 
   constructor(private readonly configService: ConfigService) {}
 
   /**
-   * NestJS lifecycle hook — runs once when the module finishes
-   * initializing. Loading the CSV here (instead of lazily on the first
-   * request) means the first publication fetch doesn't pay the cost
-   * of parsing ~30k rows.
+   * Lifecycle hook: load the CSV once at boot so the first publication
+   * fetch doesn't pay parsing latency. If the file is missing we log a
+   * warning and keep going — fetchers will store publications with
+   * `quartile: null` until the CSV is provided.
    */
   async onModuleInit(): Promise<void> {
     const csvPath = this.resolveCsvPath();
     if (!existsSync(csvPath)) {
       this.logger.warn(
-        `Scimago CSV not found at ${csvPath}. ` +
-          `Quartile resolution will be disabled. ` +
+        `Scimago CSV not found at ${csvPath}. Quartile resolution disabled. ` +
           `Download the latest CSV from https://www.scimagojr.com/journalrank.php ` +
           `and save it as data/scimago_journal_rank.csv`,
       );
@@ -72,10 +62,11 @@ export class SjrResolverService implements OnModuleInit {
     }
 
     try {
-      this.loadCsv(csvPath);
+      const loaded = this.loadCsv(csvPath);
       this.isReady = true;
       this.logger.log(
-        `SJR Resolver ready — ${this.issnIndex.size} ISSN entries indexed`,
+        `SJR Resolver ready — ${this.issnIndex.size} ISSN entries indexed ` +
+          `(from ${loaded.parsed} rows parsed, ${loaded.skipped} skipped due to malformed CSV)`,
       );
     } catch (err) {
       this.logger.error(
@@ -85,12 +76,8 @@ export class SjrResolverService implements OnModuleInit {
   }
 
   /**
-   * Public lookup method. Returns null when:
-   *  - The CSV wasn't loaded (logged at boot).
-   *  - The ISSN is empty or not found in the dataset.
-   *
-   * The caller decides what to do with a null result — typically store
-   * the publication with `quartile = null` and move on.
+   * Public lookup. Returns null when the CSV wasn't loaded or the ISSN
+   * isn't in the dataset (very new journals, book chapters, proceedings).
    */
   resolveByIssn(issn: string | null | undefined): SjrEntry | null {
     if (!this.isReady || !issn) return null;
@@ -99,8 +86,7 @@ export class SjrResolverService implements OnModuleInit {
   }
 
   /**
-   * Resolves the absolute path to the CSV. Reads from the
-   * `SCIMAGO_CSV_PATH` env var if set, otherwise defaults to
+   * Resolves the path. Reads `SCIMAGO_CSV_PATH` env var or defaults to
    * `data/scimago_journal_rank.csv` relative to the project root.
    */
   private resolveCsvPath(): string {
@@ -110,26 +96,42 @@ export class SjrResolverService implements OnModuleInit {
   }
 
   /**
-   * Reads the file and parses every row.
+   * Reads and parses the CSV. Tolerant of malformed rows: any row that
+   * the parser can't handle gets skipped (and counted) rather than
+   * aborting the whole load.
    *
-   * Scimago publishes the file with European conventions:
+   * Scimago CSV format:
    *   - column separator: `;`
    *   - decimal separator: `,`
-   *   - text fields wrapped in double quotes
-   *
-   * We need to be tolerant about the year embedded in column names
-   * (e.g. `Total Docs. (2023)` changes each year), so we look up
-   * columns by static names only when those names are guaranteed
-   * stable across editions.
+   *   - text fields wrapped in `"..."`
+   *   - occasional rows with unescaped quotes mid-field (the bug we
+   *     work around with `skip_records_with_error: true`).
    */
-  private loadCsv(path: string): void {
+  private loadCsv(path: string): { parsed: number; skipped: number } {
     const content = readFileSync(path, 'utf-8');
+
+    // First count total non-empty lines (excluding header) to compute
+    // how many were skipped due to parse errors.
+    const totalDataLines =
+      content.split('\n').filter((line) => line.trim().length > 0).length - 1;
+
     const rows: Array<Record<string, string>> = parse(content, {
       delimiter: ';',
       columns: true,
       skip_empty_lines: true,
       trim: true,
       relax_quotes: true,
+      relax_column_count: true,
+      // Critical: instead of aborting on the first malformed row,
+      // skip it and continue parsing the rest of the file.
+      skip_records_with_error: true,
+      // Hook called for each error-skipped row; useful for logging.
+      on_record: (record, { lines }) => {
+        // We could log every row here, but we keep it silent unless we
+        // want to debug specific lines; the aggregate count is logged
+        // by the caller via the returned numbers.
+        return record;
+      },
     });
 
     for (const row of rows) {
@@ -151,30 +153,30 @@ export class SjrResolverService implements OnModuleInit {
         allCategories,
       };
 
-      // A row can have multiple ISSNs (print + online) separated by ", ".
-      // We index the entry under each of them so any ISSN variant resolves.
+      // Journals can have multiple ISSNs (print + online); index each.
       const issns = issnField.split(',').map((s) => this.normalizeIssn(s));
       for (const issn of issns) {
         if (issn) this.issnIndex.set(issn, entry);
       }
     }
+
+    return {
+      parsed: rows.length,
+      skipped: Math.max(0, totalDataLines - rows.length),
+    };
   }
 
   /**
-   * Normalizes an ISSN to a canonical form:
-   *   - removes dashes/whitespace
-   *   - uppercases the trailing check digit when it's an "X"
-   *
-   * Example: "0021-9258" → "00219258", "1083-351x" → "1083351X"
+   * Canonical ISSN form: no dashes, no whitespace, uppercase trailing
+   * "X" check digit.
    */
   private normalizeIssn(raw: string): string {
     return raw.replace(/[\s-]/g, '').toUpperCase();
   }
 
   /**
-   * Parses Scimago's European-formatted decimals ("0,123" → 0.123).
-   * Returns null when the field is empty or unparseable so the caller
-   * doesn't accidentally store `NaN`.
+   * European decimal "0,123" → 0.123. Returns null on empty or invalid
+   * input so callers never store NaN by accident.
    */
   private parseEuropeanNumber(value: string | undefined): number | null {
     if (!value) return null;
@@ -184,18 +186,13 @@ export class SjrResolverService implements OnModuleInit {
   }
 
   /**
-   * Parses the `Categories` column. Scimago formats it as a
-   * semicolon-separated list where each entry optionally carries the
-   * quartile in parentheses:
+   * Parses Scimago's Categories column:
    *
    *   "Biochemistry (Q1); Cell Biology (Q2); Molecular Biology (Q1)"
    *
-   * The FIRST item is the journal's primary category — that's what
-   * we expose as `mainCategory` / `mainQuartile` per the product
-   * decision to surface "main category" quartile instead of "best".
-   *
-   * Some categories arrive without a parenthesized quartile (e.g.
-   * "Biochemistry; Cell Biology (Q2)"). In that case quartile is null.
+   * The FIRST item is treated as the journal's primary category, so
+   * `mainCategory` and `mainQuartile` come from there. Categories that
+   * lack a parenthesised quartile get `quartile: null` (rare).
    */
   private parseCategories(raw: string): {
     allCategories: Array<{ category: string; quartile: string | null }>;
@@ -208,7 +205,6 @@ export class SjrResolverService implements OnModuleInit {
 
     const items = raw.split(';').map((s) => s.trim()).filter(Boolean);
     const parsed = items.map((item) => {
-      // Matches "<category> (<quartile>)" — the quartile group is optional.
       const match = item.match(/^(.+?)\s*\((Q[1-4])\)\s*$/);
       if (match) {
         return { category: match[1].trim(), quartile: match[2] };

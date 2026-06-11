@@ -1,20 +1,14 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
 import { StatisticsService } from './statistics.service';
 
-/**
- * Endpoints consumed by the front-end charts.
- *
- * All routes are GET-only — the data they return is computed on the fly
- * from the relational tables, so changes to the underlying data are
- * reflected immediately on the next request.
- */
 @Controller('statistics')
 export class StatisticsController {
   constructor(private readonly statisticsService: StatisticsService) {}
 
   /**
    * GET /statistics/yearly-per-researcher
-   * → publications per year per researcher (totals across platforms).
+   * → Publications per year per researcher (deduplicated across platforms,
+   *   counts each paper once even if co-authored by multiple UCN people).
    */
   @Get('yearly-per-researcher')
   yearlyPerResearcher() {
@@ -22,20 +16,29 @@ export class StatisticsController {
   }
 
   /**
-   * GET /statistics/researcher-series
-   * → per-researcher series with one curve per platform plus a TOTAL.
-   */
-  @Get('researcher-series')
-  researcherSeries() {
-    return this.statisticsService.getChartSeriesPerResearcher();
-  }
-
-  /**
    * GET /statistics/global-yearly
-   * → single curve with the institution-wide totals per year.
+   * → Institution-wide totals per year for the dashboard summary chart.
    */
   @Get('global-yearly')
   globalYearly() {
     return this.statisticsService.getGlobalYearlyTotals();
+  }
+
+  /**
+   * GET /statistics/counterfactual/:researcherId
+   * → What the institution loses if this researcher leaves.
+   *
+   * Returns:
+   *   - totalPublications
+   *   - publicationsExclusiveToHim
+   *   - publicationsCoAuthoredWithOtherUcn
+   *   - citationsLost
+   *   - quartileDistributionLost: { Q1, Q2, Q3, Q4, none }
+   *   - yearlyImpactLost: [{ year, publications, citations }]
+   *   - collaboratorsAffected: [{ researcherId, fullName, sharedPapers }]
+   */
+  @Get('counterfactual/:researcherId')
+  counterfactual(@Param('researcherId', ParseUUIDPipe) researcherId: string) {
+    return this.statisticsService.getCounterfactual(researcherId);
   }
 }

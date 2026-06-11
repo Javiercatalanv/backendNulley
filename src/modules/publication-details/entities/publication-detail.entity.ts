@@ -3,94 +3,107 @@ import {
   CreateDateColumn,
   Entity,
   Index,
-  JoinColumn,
-  ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
-  Unique,
   UpdateDateColumn,
 } from 'typeorm';
-import { ResearcherProfile } from '../../researcher-profiles/entities/researcher-profile.entity';
+import { PublicationAuthorship } from './publication-authorship.entity';
 
 /**
- * Detailed publication record fetched from WOS or Scopus.
+ * One published paper, deduplicated across platforms.
  *
- * This entity is intentionally separate from `publications` (the yearly
- * counters loaded from Excel). The Excel only gives totals; this table
- * stores the actual papers with title, journal, quartile, citations,
- * etc. — the data needed to power the "detail" views in the frontend.
+ * Key changes from the previous version:
  *
- * Uniqueness:
- *   We deduplicate per (sourcePlatform, externalPublicationId) so
- *   re-syncing the same researcher does not create duplicate rows.
- *   Note that the same paper may legitimately exist twice in this table
- *   if it appears in both WOS and Scopus — that is by design, because
- *   each platform may assign a different quartile or even title casing,
- *   and we want to preserve both versions for traceability.
+ *  - Removed the single `profile` FK. Authorship is now modeled by the
+ *    `publication_authorships` join table (many-to-many with profiles).
+ *    A paper can therefore have multiple UCN authors at the same time,
+ *    which is what the counterfactual analysis requires.
+ *
+ *  - Added `sources`: a JSON array tracking every platform/external-id
+ *    pair under which the paper was discovered. Replaces the old
+ *    `(sourcePlatform, externalPublicationId)` unique constraint.
+ *
+ *  - Added `url`: a precomputed link the frontend can use directly.
+ *    Built from DOI when available, else from the platform-specific id.
+ *
+ *  - DOI is a unique partial index (only when non-null): two papers
+ *    can't share a DOI, but many papers can legitimately have no DOI.
+ *    This is the canonical cross-platform deduplication key.
  */
 @Entity({ name: 'publication_details' })
-@Unique('UQ_publication_source', ['sourcePlatform', 'externalPublicationId'])
 export class PublicationDetail {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  /** Full article title as returned by the source platform. */
   @Column({ type: 'text' })
   title: string;
 
-  /** Journal / source title (`prism:publicationName` in Scopus, `source.title` in WoS). */
   @Column({ type: 'varchar', length: 500, nullable: true })
   journal: string | null;
 
-  /** ISSN reported by the platform. Used to resolve the quartile. */
   @Index()
   @Column({ type: 'varchar', length: 20, nullable: true })
   issn: string | null;
 
-  /** Year of publication. Indexed because chart aggregations group by year. */
   @Index()
   @Column({ type: 'int' })
   year: number;
 
-  /**
-   * Quartile (Q1..Q4) from Scimago for the journal's MAIN category.
-   * `null` when the ISSN was not present in the Scimago dataset
-   * (book chapters, conference proceedings, very new journals, etc.).
-   */
   @Column({ type: 'varchar', length: 5, nullable: true })
   quartile: string | null;
 
-  /** Scimago "main category" name, kept for transparency. */
   @Column({ type: 'varchar', length: 200, nullable: true })
   mainCategory: string | null;
 
-  /** DOI when available — useful for linking out from the UI. */
+  /**
+   * DOI is the canonical cross-platform identifier. Unique among
+   * non-null values so the same paper showing up in WoS and Scopus
+   * collapses into one row.
+   */
+  @Index('UQ_publication_doi', { unique: true, where: '"doi" IS NOT NULL' })
   @Column({ type: 'varchar', length: 200, nullable: true })
   doi: string | null;
 
-  /** Citation count reported at fetch time. */
   @Column({ type: 'int', default: 0 })
   citedByCount: number;
 
-  /** "WOS" or "SCOPUS" — matches Platform.code values. */
-  @Index()
-  @Column({ type: 'varchar', length: 50 })
-  sourcePlatform: string;
+  /**
+   * Every (platform, externalId) pair this paper was discovered as.
+   * Example:
+   *   [
+   *     { "platform": "SCOPUS", "externalPublicationId": "2-s2.0-85123456789" },
+   *     { "platform": "WOS",    "externalPublicationId": "WOS:000123456789012" }
+   *   ]
+   *
+   * Stored as JSONB so we can query containment cheaply if needed.
+   */
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  sources: Array<{ platform: string; externalPublicationId: string }>;
 
   /**
-   * Stable identifier assigned by the platform to the publication
-   * (WoS UT, Scopus EID). Together with `sourcePlatform` forms the
-   * unique key used for idempotent upserts.
+   * Pre-built link for the frontend. Priority:
+   *   1. https://doi.org/<doi>          (universal, always best)
+   *   2. https://www.scopus.com/...     (when sourced from Scopus)
+   *   3. https://www.webofscience.com   (when sourced from WoS)
+   *
+   * Lets the UI render <a href={pub.url}> without knowing platform rules.
    */
-  @Column({ type: 'varchar', length: 100 })
-  externalPublicationId: string;
+  @Column({ type: 'text', nullable: true })
+  url: string | null;
 
-  /** Profile through which this publication was discovered. */
-  @ManyToOne(() => ResearcherProfile, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'profile_id' })
-  profile: ResearcherProfile;
+  /**
+   * Authorship rows linking this paper to UCN researchers. A paper can
+   * have multiple authors here when several of the tracked UCN
+   * researchers co-authored it. The set is empty for non-UCN authors —
+   * we only persist authorships for profiles we already have on file.
+   */
+  @OneToMany(() => PublicationAuthorship, (a) => a.publication, {
+    cascade: true,
+  })
+  authorships: PublicationAuthorship[];
 
   @CreateDateColumn()
-  fetchedAt: Date;
+  createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;

@@ -17,6 +17,7 @@ import { SjrResolverModule } from './modules/sjr-resolver/sjr-resolver.module';
 import { PublicationDetailsModule } from './modules/publication-details/publication-details.module';
 import { WosFetcherModule } from './modules/wos-fetcher/wos-fetcher.module';
 import { ScopusFetcherModule } from './modules/scopus-fetcher/scopus-fetcher.module';
+import { ApiSnapshotsModule } from './modules/api-snapshots/api-snapshots.module';
 
 /**
  * Root module of the application.
@@ -38,7 +39,7 @@ import { ScopusFetcherModule } from './modules/scopus-fetcher/scopus-fetcher.mod
       useFactory: postgresConfig,
     }),
 
-    // MongoDB — schemaless audit storage.
+    // MongoDB — schemaless audit + raw API payloads.
     MongooseModule.forRootAsync({
       inject: [ConfigService],
       useFactory: mongoConfig,
@@ -58,6 +59,7 @@ import { ScopusFetcherModule } from './modules/scopus-fetcher/scopus-fetcher.mod
     OrcidScraperModule,        // ORCID public API client (kept as-is).
     SjrResolverModule,         // In-memory Scimago index for quartile lookup.
     PublicationDetailsModule,  // Stores enriched publications (title, journal, quartile, year).
+    ApiSnapshotsModule,        // Stores raw API responses (audit + replay without re-fetch).
     WosFetcherModule,          // Web of Science Starter API client.
     ScopusFetcherModule,       // Scopus Search API client.
   ],
