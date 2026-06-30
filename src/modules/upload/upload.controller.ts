@@ -1,15 +1,25 @@
-import {BadRequestException,Controller,Post,Query,UploadedFile,UseInterceptors,} from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Post,
+  Query,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Express } from 'express';
 import { ExcelService } from '../excel/excel.service';
 import { JcrImportService } from '../jcr-resolver/jcr-import.service';
 import { PublicationDetailsService } from '../publication-details/publication-details.service';
+import { JwtAuthGuard } from '../auth/guards/jwt.auth.guard';
 
 @Controller('upload')
 export class UploadController {
   private static readonly ACCEPTED_MIMETYPES = [
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-    'application/vnd.ms-excel', // .xls
-    'application/octet-stream', // genérico
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-excel',
+    'application/octet-stream',
   ];
 
   private static readonly ACCEPTED_JSON_MIMETYPES = [
@@ -24,8 +34,9 @@ export class UploadController {
     private readonly publicationDetailsService: PublicationDetailsService,
   ) {}
 
-  /** POST /upload/excel — multipart/form-data con campo "file". */
+  /** POST /upload/excel — PROTEGIDO. multipart/form-data con campo "file". */
   @Post('excel')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   async uploadExcel(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
@@ -41,12 +52,9 @@ export class UploadController {
     return this.excelService.importFromBuffer(file.buffer, file.originalname);
   }
 
-  /**
-   * POST /upload/jcr?year=2025 — multipart/form-data con campo "file" (JSON).
-   * Sube el listado anual de factores de impacto/cuartiles del JCR.
-   * Tras guardarlo, re-aplica las métricas a todas las publicaciones existentes.
-   */
+  /** POST /upload/jcr?year=2025 — PROTEGIDO. multipart/form-data con campo "file" (JSON). */
   @Post('jcr')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   async uploadJcr(
     @UploadedFile() file: Express.Multer.File,
@@ -69,10 +77,7 @@ export class UploadController {
     }
 
     const importResult = await this.jcrImportService.importFromBuffer(file.buffer, jcrYear);
-
-    // Re-aplicar JIF/cuartil a las publicaciones ya existentes en la base
     const reapply = await this.publicationDetailsService.reapplyMetrics();
-
     return { ...importResult, reapply };
   }
 }

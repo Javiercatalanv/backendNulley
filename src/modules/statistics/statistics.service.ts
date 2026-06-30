@@ -37,7 +37,7 @@ export class StatisticsService {
     deduped AS (
       SELECT DISTINCT ON (dedupe_key) *
       FROM ranked
-      ORDER BY dedupe_key, source_rank DESC, cited_by_count DESC
+      ORDER BY dedupe_key, source_rank DESC, "citedByCount" DESC
     )
   `;
 

@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MongooseModule } from '@nestjs/mongoose';
 import { postgresConfig } from './config/postgres.config';
 import { mongoConfig } from './config/mongo.config';
+import { AuthModule } from './modules/auth/auth.module';
 import { ResearchersModule } from './modules/researchers/researchers.module';
 import { PlatformsModule } from './modules/platforms/platforms.module';
 import { ResearcherProfilesModule } from './modules/researcher-profiles/researcher-profiles.module';
@@ -19,7 +20,6 @@ import { WosFetcherModule } from './modules/wos-fetcher/wos-fetcher.module';
 import { ScopusFetcherModule } from './modules/scopus-fetcher/scopus-fetcher.module';
 import { ApiSnapshotsModule } from './modules/api-snapshots/api-snapshots.module';
 
-
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -34,6 +34,7 @@ import { ApiSnapshotsModule } from './modules/api-snapshots/api-snapshots.module
       useFactory: mongoConfig,
     }),
 
+    AuthModule,
     ResearchersModule,
     PlatformsModule,
     ResearcherProfilesModule,
