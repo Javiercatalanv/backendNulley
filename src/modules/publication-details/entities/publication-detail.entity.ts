@@ -20,6 +20,11 @@ export class PublicationDetail {
   @Column({ type: 'int' })
   year: number;
 
+  // Fecha de publicación exacta cuando la API la provee (Scopus: prism:coverDate).
+  // WOS Starter solo da el año, así que para esas publicaciones queda null.
+  @Column({ type: 'date', nullable: true })
+  publishedDate: string | null;
+
   @Column({ type: 'varchar', length: 5, nullable: true })
   quartile: string | null;
 

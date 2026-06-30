@@ -251,6 +251,11 @@ export class ScopusFetcherService {
       journal: entry?.['prism:publicationName'] ?? null,
       issn: entry?.['prism:issn'] ?? entry?.['prism:eIssn'] ?? null,
       year,
+      // coverDate viene como 'YYYY-MM-DD'; lo guardamos solo si tiene ese formato.
+      publishedDate:
+        typeof coverDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(coverDate)
+          ? coverDate
+          : null,
       doi: entry?.['prism:doi'] ?? null,
       citedByCount: Number(entry?.['citedby-count'] ?? 0),
       sourcePlatform: ScopusFetcherService.PLATFORM_CODE,

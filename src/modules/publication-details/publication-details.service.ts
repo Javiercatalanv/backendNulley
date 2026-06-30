@@ -68,6 +68,7 @@ export class PublicationDetailsService {
         journal: input.journal,
         issn: input.issn,
         year: input.year,
+        publishedDate: input.publishedDate ?? null,
         doi: input.doi,
         citedByCount: input.citedByCount,
         quartile: metrics.quartile,
@@ -97,6 +98,10 @@ export class PublicationDetailsService {
     }
     if (input.doi && !existing.doi) {
       existing.doi = input.doi;
+      needsSave = true;
+    }
+    if (input.publishedDate && !existing.publishedDate) {
+      existing.publishedDate = input.publishedDate;
       needsSave = true;
     }
     if (!existing.url) {

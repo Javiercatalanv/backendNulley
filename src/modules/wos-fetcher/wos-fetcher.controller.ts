@@ -8,7 +8,7 @@ export class WosFetcherController {
   /**
    * GET /wos-fetcher/test/:researcherId
    * Example:
-   *   curl http://localhost:3000/wos-fetcher/test/MIK-4669-2025
+   *   curl http://localhost:3000/wos-fetcher/test/
    */
   @Get('test/:researcherId')
   test(@Param('researcherId') researcherId: string) {
