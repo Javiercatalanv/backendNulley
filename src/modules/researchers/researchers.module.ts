@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Researcher } from './entities/researcher.entity';
+import { Area } from '../areas/entities/area.entity';
 import { ResearchersService } from './researchers.service';
 import { ResearchersController } from './researchers.controller';
 
-// AuthModule es @Global, por eso JwtAuthGuard está disponible aquí
-// sin necesidad de importarlo explícitamente.
 @Module({
-  imports: [TypeOrmModule.forFeature([Researcher])],
+  // Area se registra aquí también para poder inyectar su repositorio en el service.
+  imports: [TypeOrmModule.forFeature([Researcher, Area])],
   controllers: [ResearchersController],
   providers: [ResearchersService],
   exports: [ResearchersService],

@@ -2,9 +2,13 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { postgresConfig } from './config/postgres.config';
 import { mongoConfig } from './config/mongo.config';
 import { AuthModule } from './modules/auth/auth.module';
+import { AreasModule } from './modules/areas/areas.module';
+import { HealthModule } from './modules/health/health.module';
 import { ResearchersModule } from './modules/researchers/researchers.module';
 import { PlatformsModule } from './modules/platforms/platforms.module';
 import { ResearcherProfilesModule } from './modules/researcher-profiles/researcher-profiles.module';
@@ -24,6 +28,15 @@ import { ApiSnapshotsModule } from './modules/api-snapshots/api-snapshots.module
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
 
+    // Rate limiting global: máximo 100 peticiones por minuto por IP.
+    // Protege contra abuso del portal público y fuerza bruta en /auth/login.
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // ventana de 60 segundos
+        limit: 100, // 100 peticiones por IP en esa ventana
+      },
+    ]),
+
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: postgresConfig,
@@ -35,6 +48,8 @@ import { ApiSnapshotsModule } from './modules/api-snapshots/api-snapshots.module
     }),
 
     AuthModule,
+    AreasModule,
+    HealthModule,
     ResearchersModule,
     PlatformsModule,
     ResearcherProfilesModule,
@@ -49,6 +64,13 @@ import { ApiSnapshotsModule } from './modules/api-snapshots/api-snapshots.module
     ApiSnapshotsModule,
     WosFetcherModule,
     ScopusFetcherModule,
+  ],
+  providers: [
+    // Aplica el rate limiting a TODOS los endpoints automáticamente.
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule {}

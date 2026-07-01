@@ -198,6 +198,7 @@ export class PublicationDetailsService {
         'authorships',
         'authorships.profile',
         'authorships.profile.researcher',
+        'authorships.profile.researcher.area',
         'authorships.profile.platform',
       ],
       order: { year: 'DESC' },
