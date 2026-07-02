@@ -23,6 +23,7 @@ import { PublicationDetailsModule } from './modules/publication-details/publicat
 import { WosFetcherModule } from './modules/wos-fetcher/wos-fetcher.module';
 import { ScopusFetcherModule } from './modules/scopus-fetcher/scopus-fetcher.module';
 import { ApiSnapshotsModule } from './modules/api-snapshots/api-snapshots.module';
+import { PlatformSyncModule } from './modules/platform-sync/platform-sync.module';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { ApiSnapshotsModule } from './modules/api-snapshots/api-snapshots.module
     ApiSnapshotsModule,
     WosFetcherModule,
     ScopusFetcherModule,
+    PlatformSyncModule,
   ],
   providers: [
     // Aplica el rate limiting a TODOS los endpoints automáticamente.

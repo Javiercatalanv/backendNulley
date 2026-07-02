@@ -1,5 +1,6 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { WosFetcherService } from './wos-fetcher.service';
+import { JwtAuthGuard } from '../auth/guards/jwt.auth.guard';
 
 @Controller('wos-fetcher')
 export class WosFetcherController {
@@ -18,8 +19,11 @@ export class WosFetcherController {
   /**
    * POST /wos-fetcher/sync
    * → syncs every WOS profile registered in the database.
+   * Requiere sesión de administrador: consume la API externa de WOS y
+   * escribe en la base de datos, así que no puede quedar abierto.
    */
   @Post('sync')
+  @UseGuards(JwtAuthGuard)
   syncAll() {
     return this.wosFetcherService.syncAllProfiles();
   }
@@ -30,6 +34,7 @@ export class WosFetcherController {
    *   refreshes after editing a researcher.
    */
   @Post('sync/:profileId')
+  @UseGuards(JwtAuthGuard)
   syncOne(@Param('profileId', ParseUUIDPipe) profileId: string) {
     return this.wosFetcherService.syncOneProfile(profileId);
   }
